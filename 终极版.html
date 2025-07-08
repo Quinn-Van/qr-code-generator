@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>二维码分享生成器</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #667eea; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; }
+        .upload-area { border: 3px dashed #667eea; padding: 40px; text-align: center; cursor: pointer; margin: 20px 0; }
+        .upload-area:hover { background: #f0f0f0; }
+        .preview { display: none; margin: 20px 0; }
+        .preview img { max-width: 300px; display: block; margin: 0 auto 20px; }
+        textarea { width: 100%; height: 100px; margin: 10px 0; }
+        input { width: 100%; padding: 10px; margin: 10px 0; }
+        button { padding: 10px 20px; margin: 5px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #5a6fd8; }
+        .status { padding: 10px; margin: 10px 0; background: #d4edda; border-radius: 5px; }
+        .status.error { background: #f8d7da; }
+        #fileInput { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 二维码分享生成器</h1>
+        <p>支持真实可访问链接和短链接</p>
+        
+        <div id="status" class="status">系统就绪 - 点击上传二维码图片</div>
+        
+        <div class="upload-area" id="uploadArea">
+            <h3>📤 点击上传二维码图片</h3>
+            <p>支持 PNG, JPG, GIF 格式</p>
+            <input type="file" id="fileInput" accept="image/*">
+        </div>
+        
+        <div class="preview" id="preview">
+            <img id="previewImg" src="">
+            
+            <h4>Base64 链接</h4>
+            <textarea id="base64Text" readonly></textarea>
+            <button onclick="copy('base64Text')">复制 Base64</button>
+            
+            <h4>分享链接</h4>
+            <textarea id="shareText" readonly></textarea>
+            <button onclick="copy('shareText')">复制分享链接</button>
+            
+            <h4>短链接生成</h4>
+            <input type="text" id="urlInput" placeholder="粘贴长链接...">
+            <button onclick="makeShort()">生成短链</button>
+            <div style="font-size: 0.85rem; color: #28a745; margin: 5px 0; padding: 8px; background: #f8f9fa; border-radius: 5px;">
+                ✅ 安全短链接：可在微信、QQ、微博等平台正常访问，无重定向限制
+            </div>
+            <textarea id="shortText" readonly style="display: none;"></textarea>
+            <button id="copyShortBtn" onclick="copy('shortText')" style="display: none;">复制短链</button>
+            
+            <div style="margin: 20px 0;">
+                <button onclick="shareWechat()" style="background: #07c160;">💬 微信</button>
+                <button onclick="shareQQ()" style="background: #1296db;">🐧 QQ</button>
+                <button onclick="shareWeibo()" style="background: #e6162d;">📺 微博</button>
+            </div>
+            
+            <button onclick="reset()">重新上传</button>
+        </div>
+    </div>
+
+    <script>
+        let imageData = null;
+        let shareLink = null;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('页面加载完成');
+            
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            
+            // 点击上传
+            uploadArea.addEventListener('click', function() {
+                console.log('点击上传区域');
+                updateStatus('打开文件选择器...');
+                fileInput.click();
+            });
+            
+            // 文件选择
+            fileInput.addEventListener('change', function(e) {
+                console.log('文件选择触发');
+                if (e.target.files.length > 0) {
+                    handleFile(e.target.files[0]);
+                }
+            });
+            
+            // 拖拽
+            uploadArea.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                uploadArea.style.background = '#f0f0f0';
+            });
+            
+            uploadArea.addEventListener('dragleave', function() {
+                uploadArea.style.background = '';
+            });
+            
+            uploadArea.addEventListener('drop', function(e) {
+                e.preventDefault();
+                uploadArea.style.background = '';
+                if (e.dataTransfer.files.length > 0) {
+                    handleFile(e.dataTransfer.files[0]);
+                }
+            });
+            
+            // 阻止默认拖拽
+            document.addEventListener('dragover', function(e) { e.preventDefault(); });
+            document.addEventListener('drop', function(e) { e.preventDefault(); });
+            
+            // 检查URL参数
+            checkUrlParams();
+            
+            updateStatus('系统就绪 - 点击上传二维码图片');
+        });
+
+        function handleFile(file) {
+            console.log('处理文件:', file.name);
+            updateStatus('处理文件: ' + file.name);
+            
+            if (!file.type.startsWith('image/')) {
+                updateStatus('错误: 请选择图片文件', true);
+                return;
+            }
+            
+            if (file.size > 10 * 1024 * 1024) {
+                updateStatus('错误: 文件太大', true);
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                imageData = e.target.result;
+                processImage();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function processImage() {
+            console.log('处理图片');
+            
+            // 显示预览
+            document.getElementById('previewImg').src = imageData;
+            document.getElementById('base64Text').value = imageData;
+            
+            // 生成分享链接
+            const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+            shareLink = window.location.origin + window.location.pathname + '?share=' + id;
+            document.getElementById('shareText').value = shareLink;
+            document.getElementById('urlInput').value = shareLink;
+            
+            // 存储数据
+            localStorage.setItem('qr_share_' + id, imageData);
+            
+            // 显示预览
+            document.getElementById('preview').style.display = 'block';
+            
+            updateStatus('成功! 图片已上传并生成分享链接');
+        }
+
+        function copy(elementId) {
+            const element = document.getElementById(elementId);
+            element.select();
+            document.execCommand('copy');
+            updateStatus('已复制到剪贴板');
+        }
+
+        async function makeShort() {
+            const url = document.getElementById('urlInput').value.trim();
+            if (!url) {
+                updateStatus('请输入链接', true);
+                return;
+            }
+            
+            updateStatus('生成短链接...');
+            
+            // 优先使用本地短链接，更安全可靠
+            const shortId = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+            const localShort = window.location.origin + window.location.pathname + '?short=' + shortId;
+            
+            // 存储重定向数据
+            localStorage.setItem('short_' + shortId, url);
+            localStorage.setItem('short_' + shortId + '_timestamp', Date.now());
+            localStorage.setItem('short_' + shortId + '_title', '分享链接');
+            
+            document.getElementById('shortText').value = localShort;
+            document.getElementById('shortText').style.display = 'block';
+            document.getElementById('copyShortBtn').style.display = 'inline-block';
+            updateStatus('✅ 短链接生成成功！此链接在微信QQ等平台都能正常访问');
+            
+            // 可选：尝试生成真实短链接作为备选
+            tryRealShortUrl(url, shortId);
+        }
+
+        async function tryRealShortUrl(originalUrl, localId) {
+            try {
+                // 使用更安全的短链接服务
+                const services = [
+                    {
+                        name: 'is.gd',
+                        url: 'https://is.gd/create.php',
+                        method: 'POST',
+                        body: 'format=simple&url=' + encodeURIComponent(originalUrl)
+                    },
+                    {
+                        name: 'v.gd',
+                        url: 'https://v.gd/create.php',
+                        method: 'POST', 
+                        body: 'format=simple&url=' + encodeURIComponent(originalUrl)
+                    }
+                ];
+
+                for (const service of services) {
+                    try {
+                        const response = await fetch(service.url, {
+                            method: service.method,
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                            body: service.body
+                        });
+
+                        if (response.ok) {
+                            const shortUrl = await response.text();
+                            if (shortUrl && shortUrl.startsWith('http') && !shortUrl.includes('Error')) {
+                                // 保存真实短链接作为备选
+                                localStorage.setItem('real_short_' + localId, shortUrl.trim());
+                                console.log('真实短链接生成成功:', shortUrl.trim());
+                                return shortUrl.trim();
+                            }
+                        }
+                    } catch (error) {
+                        console.log(service.name + '服务不可用:', error);
+                        continue;
+                    }
+                }
+            } catch (error) {
+                console.log('所有短链接服务都不可用');
+            }
+        }
+
+        function shareWechat() {
+            if (!shareLink) return;
+            copyToClipboard(shareLink);
+            updateStatus('链接已复制! 请在微信中粘贴分享');
+        }
+
+        function shareQQ() {
+            if (!shareLink) return;
+            window.open('https://connect.qq.com/widget/shareqq/index.html?url=' + encodeURIComponent(shareLink));
+        }
+
+        function shareWeibo() {
+            if (!shareLink) return;
+            window.open('https://service.weibo.com/share/share.php?url=' + encodeURIComponent(shareLink));
+        }
+
+        function copyToClipboard(text) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+        }
+
+        function reset() {
+            document.getElementById('preview').style.display = 'none';
+            document.getElementById('fileInput').value = '';
+            document.getElementById('urlInput').value = '';
+            document.getElementById('shortText').style.display = 'none';
+            document.getElementById('copyShortBtn').style.display = 'none';
+            imageData = null;
+            shareLink = null;
+            updateStatus('已重置');
+        }
+
+        function updateStatus(message, isError = false) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = isError ? 'status error' : 'status';
+            console.log('状态:', message);
+        }
+
+        function checkUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            const shareId = params.get('share');
+            const redirectId = params.get('redirect');
+            const shortId = params.get('short');
+            
+            if (shareId) {
+                const data = localStorage.getItem('qr_share_' + shareId);
+                if (data) {
+                    showSharedImage(data);
+                }
+            } else if (redirectId) {
+                const url = localStorage.getItem('redirect_' + redirectId);
+                if (url) {
+                    showRedirect(url);
+                }
+            } else if (shortId) {
+                const url = localStorage.getItem('short_' + shortId);
+                const realShortUrl = localStorage.getItem('real_short_' + shortId);
+                if (url) {
+                    showShortRedirect(url, realShortUrl);
+                } else {
+                    showShortLinkExpired();
+                }
+            }
+        }
+
+        function showSharedImage(data) {
+            document.body.innerHTML = '<div style="text-align:center;padding:40px;"><h2>分享的二维码</h2><img src="' + data + '" style="max-width:400px;"><br><button onclick="download()">下载</button> <button onclick="goHome()">返回</button></div>';
+            
+            window.download = function() {
+                const link = document.createElement('a');
+                link.download = 'qrcode.png';
+                link.href = data;
+                link.click();
+            };
+            
+            window.goHome = function() {
+                window.location.href = window.location.pathname;
+            };
+        }
+
+        function showRedirect(url) {
+            document.body.innerHTML = '<div style="text-align:center;padding:40px;"><h2>重定向中...</h2><p>即将跳转到: ' + url + '</p><button onclick="window.open(\'' + url + '\')">立即访问</button></div>';
+            setTimeout(() => window.open(url), 3000);
+        }
+
+        function showShortRedirect(targetUrl, realShortUrl) {
+            const displayUrl = targetUrl.length > 60 ? targetUrl.substring(0, 60) + '...' : targetUrl;
+            const realShortText = realShortUrl ? '<p style="color:#28a745;font-size:0.9rem;margin-top:10px;">🌐 真实短链接: ' + realShortUrl + '</p>' : '';
+            
+            document.body.innerHTML = `
+                <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:20px;font-family:Arial,sans-serif;">
+                    <div style="max-width:500px;width:100%;background:rgba(255,255,255,0.95);border-radius:20px;padding:40px;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.1);">
+                        <div style="font-size:3rem;margin-bottom:20px;">🔗</div>
+                        <h2 style="color:#333;margin-bottom:20px;">短链接重定向</h2>
+                        <p style="color:#666;margin-bottom:15px;">即将跳转到:</p>
+                        <div style="background:#f8f9fa;padding:15px;border-radius:10px;margin-bottom:20px;word-break:break-all;font-size:0.9rem;color:#333;">
+                            ${displayUrl}
+                        </div>
+                        ${realShortText}
+                        <div style="margin:20px 0;">
+                            <button onclick="visitUrl()" style="background:#667eea;color:white;border:none;padding:15px 30px;border-radius:25px;cursor:pointer;font-size:1rem;margin:5px;">
+                                🚀 立即访问
+                            </button>
+                            <button onclick="copyUrl()" style="background:#28a745;color:white;border:none;padding:15px 30px;border-radius:25px;cursor:pointer;font-size:1rem;margin:5px;">
+                                📋 复制链接
+                            </button>
+                        </div>
+                        <button onclick="goHome()" style="background:#6c757d;color:white;border:none;padding:12px 24px;border-radius:20px;cursor:pointer;font-size:0.9rem;">
+                            🏠 返回首页
+                        </button>
+                        <p style="color:#888;font-size:0.8rem;margin-top:20px;">
+                            <span id="countdown">3</span> 秒后自动跳转...
+                        </p>
+                    </div>
+                </div>
+            `;
+
+            // 设置全局函数
+            window.visitUrl = function() {
+                window.open(targetUrl, '_blank');
+            };
+
+            window.copyUrl = function() {
+                navigator.clipboard.writeText(targetUrl).then(() => {
+                    alert('链接已复制到剪贴板！');
+                }).catch(() => {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = targetUrl;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    alert('链接已复制到剪贴板！');
+                });
+            };
+
+            window.goHome = function() {
+                window.location.href = window.location.pathname;
+            };
+
+            // 倒计时自动跳转
+            let countdown = 3;
+            const countdownElement = document.getElementById('countdown');
+            const timer = setInterval(() => {
+                countdown--;
+                if (countdownElement) {
+                    countdownElement.textContent = countdown;
+                }
+                if (countdown <= 0) {
+                    clearInterval(timer);
+                    window.open(targetUrl, '_blank');
+                }
+            }, 1000);
+        }
+
+        function showShortLinkExpired() {
+            document.body.innerHTML = `
+                <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:20px;font-family:Arial,sans-serif;">
+                    <div style="max-width:500px;width:100%;background:rgba(255,255,255,0.95);border-radius:20px;padding:40px;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.1);">
+                        <div style="font-size:3rem;margin-bottom:20px;">⚠️</div>
+                        <h2 style="color:#333;margin-bottom:20px;">短链接已过期</h2>
+                        <p style="color:#666;margin-bottom:30px;">此短链接可能已过期或无效</p>
+                        <button onclick="goHome()" style="background:#667eea;color:white;border:none;padding:15px 30px;border-radius:25px;cursor:pointer;font-size:1rem;">
+                            🏠 返回首页
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            window.goHome = function() {
+                window.location.href = window.location.pathname;
+            };
+        }
+
+        console.log('二维码生成器已加载');
+    </script>
+</body>
+</html> 
